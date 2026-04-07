@@ -106,26 +106,40 @@ void read_committed_memory_regions_from_pid(DWORD pid, BOOL with_content)
 		if (with_content)
 		{
 			ULONGLONG bytesRead = 0;
+			ULONGLONG maxChunkSize = 64 * 1024 * 1024; // 64 MB
 			byte* regionContentBuffer = malloc(sizeof(byte) * lpBuffer.RegionSize);
-			if (!ReadProcessMemory(hProcess, lpBuffer.BaseAddress, regionContentBuffer, lpBuffer.RegionSize, &bytesRead))
+
+			if (regionContentBuffer == NULL)
 			{
-				if (regionContentBuffer != NULL)
-				{
-					free(regionContentBuffer);
-					regionContentBuffer = NULL;
-				}
+				printf("Failed to allocate memory for region content buffer\n");
 				exit(1);
 			}
 
-			if (bytesRead != lpBuffer.RegionSize)
+			ULONGLONG bytesReadTotal = 0;
+			while (bytesReadTotal < lpBuffer.RegionSize)
 			{
-				if (regionContentBuffer != NULL)
+				ULONGLONG bytesToRead = lpBuffer.RegionSize - bytesReadTotal;
+				if (bytesToRead > maxChunkSize)
+				{
+					bytesToRead = maxChunkSize;
+				}
+
+				if (!ReadProcessMemory(hProcess, lpBuffer.BaseAddress + bytesReadTotal, regionContentBuffer + bytesReadTotal, bytesToRead, &bytesRead))
 				{
 					free(regionContentBuffer);
 					regionContentBuffer = NULL;
+					exit(1);
 				}
+
+				bytesReadTotal += bytesRead;
+			}
+
+			if (bytesReadTotal != lpBuffer.RegionSize)
+			{
+				free(regionContentBuffer);
+				regionContentBuffer = NULL;
 				// TODO: this is recoverable, just try again
-				printf("Failed to ReadProcessMemory at 0x%llx, only read %lld bytes; expecting %lld bytes.", lpBuffer.BaseAddress, bytesRead, lpBuffer.RegionSize);
+				printf("Failed to ReadProcessMemory at 0x%llx, only read %lld bytes; expecting %lld bytes.", lpBuffer.BaseAddress, bytesReadTotal, lpBuffer.RegionSize);
 				exit(1);
 			}
 
@@ -149,7 +163,7 @@ void get_process_sample_from_pid(DWORD pid)
 {
 	ps = malloc(sizeof(ProcessSample));
 	InitProcessSample(ps);
-	read_committed_memory_regions_from_pid(pid, TRUE);
+	read_committed_memory_regions_from_pid(pid, FALSE);
 }
 
 byte* slice_byte_array(byte* original, ULONGLONG size, UINT start, UINT end)
@@ -202,32 +216,46 @@ ULONGLONG* cast_byte_array_to_ulong_array(byte* content, ULONGLONG size)
 
 byte* read_bytes(ULONGLONG address, ULONGLONG length, ULONGLONG* bytes_read)
 {
-
+	ULONGLONG maxChunkSize = 64 * 1024 * 1024; // 64 MB
 	byte* regionContentBuffer = malloc(sizeof(byte) * length);
-	if (!ReadProcessMemory(hProcess, address, regionContentBuffer, _msize(regionContentBuffer), bytes_read))
-	{
-		if (regionContentBuffer != NULL)
-		{
-			free(regionContentBuffer);
-			regionContentBuffer = NULL;
-		}
-		return NULL;
-	}
-
 	if (regionContentBuffer == NULL)
 		return NULL;
 
-	if (bytes_read == 0)
+	ULONGLONG bytesReadTotal = 0;
+	ULONGLONG bytesReadThisChunk = 0;
+
+	while (bytesReadTotal < length)
+	{
+		ULONGLONG bytesToRead = length - bytesReadTotal;
+		if (bytesToRead > maxChunkSize)
+		{
+			bytesToRead = maxChunkSize;
+		}
+
+		if (!ReadProcessMemory(hProcess, address + bytesReadTotal, regionContentBuffer + bytesReadTotal, bytesToRead, &bytesReadThisChunk))
+		{
+			free(regionContentBuffer);
+			return NULL;
+		}
+		bytesReadTotal += bytesReadThisChunk;
+		if (bytesReadThisChunk == 0) {
+			break;
+		}
+	}
+
+	if (bytes_read != NULL) {
+		*bytes_read = bytesReadTotal;
+	}
+
+	if (bytesReadTotal == 0)
 	{
 		free(regionContentBuffer);
-		regionContentBuffer = NULL;
 		return NULL;
 	}
 
-	if (ULLONG_MAX < bytes_read)
+	if (ULLONG_MAX < bytesReadTotal)
 	{
 		free(regionContentBuffer);
-		regionContentBuffer = NULL;
 		return NULL;
 	}
 

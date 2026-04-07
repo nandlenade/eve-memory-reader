@@ -1,13 +1,6 @@
 # Changes on this fork
 
-* Removed caching (it caused more problems than it solved).
-* Created a function that only reads a subtree of UI nodes, making reading faster if we know where the UI component we are looking for should be.
-* Added handling for PyColor and float data types.
-* Fixed crashes on writing the output json when many UI elements are shown by using [c-stringbuilder](https://github.com/cavaliercoder/c-stringbuilder) instead of a fix length buffer.
-* Added a special case for reading the child nodes of ButtonGroup type nodes.
-* Added handling for Bunch type (only to read "htmlstr").
-* Fixed memory leaks.
-* Added option to get the PID as init agument, to be able to handle multiple clients.
+* Added chunked reading to decrease memory overhead from ~4gb to ~64mb
 
 ---
 
